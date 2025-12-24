@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- ============================
+         Basic Page Setup
+    ============================ -->
+    <meta charset="UTF-8">
+
+    <!-- Page title shown in browser tab -->
+    <title>Hindi Car Voice Assistant</title>
+
+    <!-- ============================
+         Embedded CSS Styling
+    ============================ -->
+    <style>
+        /* Page background and text style */
+        body {
+            font-family: Arial, sans-serif;
+            background: #111;
+            color: #fff;
+            text-align: center;
+            padding: 40px;
+        }
+
+        /* Main button styling */
+        button {
+            padding: 15px 25px;
+            font-size: 18px;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            background: #00c853;
+            color: white;
+        }
+
+        /* Disabled button appearance */
+        button:disabled {
+            background: #555;
+        }
+
+        /* Container box for results */
+        .box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #222;
+            border-radius: 8px;
+            text-align: left;
+            max-width: 600px;
+            margin: auto;
+        }
+
+        /* Highlight labels */
+        .label {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        /* Hint text below button */
+        .hint {
+            margin-top: 10px;
+            color: #aaa;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- ============================
+     Page Header
+============================ -->
+<h1>🚗 Hindi Car Voice Assistant</h1>
+
+<!-- Button to start recording -->
+<button id="recordBtn">🎙️ Start Speaking</button>
+
+<!-- User guidance -->
+<p class="hint">
+    Click → wait 1 second → speak slowly and clearly in Hindi
+</p>
+
+<!-- ============================
+     Output Display Area
+============================ -->
+<div class="box">
+    <p>
+        <span class="label">You said:</span>
+        <span id="userText">---</span>
+    </p>
+    <p>
+        <span class="label">Car response:</span>
+        <span id="carText">---</span>
+    </p>
+</div>
+
+<!-- Audio element for optional TTS playback -->
+<audio id="carAudio" autoplay></audio>
+
+<!-- ============================
+     JavaScript Logic
+============================ -->
+<script>
+    // MediaRecorder object for recording microphone audio
+    let mediaRecorder;
+
+    // Stores recorded audio chunks
+    let audioChunks = [];
+
+    // Microphone stream
+    let stream;
+
+    // DOM element references
+    const recordBtn = document.getElementById("recordBtn");
+    const carAudio = document.getElementById("carAudio");
+
+    // ============================
+    // Button Click Handler
+    // ============================
+    recordBtn.onclick = async () => {
+        // Reset previous recording data
+        audioChunks = [];
+
+        // Disable button during recording
+        recordBtn.disabled = true;
+        recordBtn.innerText = "🎙️ Listening...";
+
+        // Request microphone access with audio enhancements
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+
+        // Create MediaRecorder using stable WebM format
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: "audio/webm;codecs=opus"
+        });
+
+        // Start recording
+        mediaRecorder.start();
+
+        // Save incoming audio data
+        mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        // Stop recording after 7 seconds
+        setTimeout(() => {
+            mediaRecorder.stop();
+            recordBtn.innerText = "⏳ Processing...";
+        }, 7000);
+
+        // ============================
+        // When Recording Stops
+        // ============================
+        mediaRecorder.onstop = async () => {
+            // Stop microphone tracks immediately
+            stream.getTracks().forEach(track => track.stop());
+
+            // Combine audio chunks into a single Blob
+            const audioBlob = new Blob(audioChunks, {
+                type: "audio/webm"
+            });
+
+            // Prepare multipart/form-data request
+            const formData = new FormData();
+            formData.append("audio", audioBlob, "voice.webm");
+
+            try {
+                // Send audio to Flask backend
+                const res = await fetch(
+                    "http://127.0.0.1:5001/api/voice-command",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+                // Parse JSON response
+                const data = await res.json();
+
+                // Handle backend errors
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    // Display recognized speech
+                    document.getElementById("userText").innerText =
+                        data.user_command || "—";
+
+                    // Display AI response
+                    document.getElementById("carText").innerText =
+                        data.car_response || "—";
+
+                    // Play car response audio if provided
+                    if (data.audio_url) {
+                        carAudio.src =
+                            "http://127.0.0.1:5001" + data.audio_url;
+                        carAudio.play();
+                    }
+                }
+
+            } catch (err) {
+                // Backend connection failure
+                alert("Backend not reachable");
+            }
+
+            // Re-enable button for next interaction
+            recordBtn.disabled = false;
+            recordBtn.innerText = "🎙️ Start Speaking";
+        };
+    };
+</script>
+
+</body>
+</html>
